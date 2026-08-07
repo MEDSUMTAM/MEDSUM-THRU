@@ -417,7 +417,7 @@ const FALLBACK_CLIENTS = {
 
 // ---- Conexión en vivo con la misma hoja de Google Sheets de tu app de negocio ----
 // IMPORTANTE: debe ser EXACTAMENTE la misma URL que usas en tu app de negocio (APPS_SCRIPT_URL)
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyd45Ka8ZNEbmRc6D_pF-Jl0OyxB9qNsGfQIpoBgqv3R3j6MiQmcHzkyc1FI3QpVvGn/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwPU0cmyJJ9HXCAe4aYrVr5vMfU6PPB-55LenWm51fwTjldjbNEmjJ09WVxDtmf3krs/exec';
 
 let PRODUCTS = FALLBACK_PRODUCTS;
 let CLIENTS = FALLBACK_CLIENTS;
@@ -465,48 +465,9 @@ async function loadBackupData(){
   renderChips();
   renderGrid();
 }
-
-// ---- Registro automático de clientes nuevos al enviar un pedido ----
-// Solo agrega al cliente nuevo a la lista existente; nunca toca productos, ventas u otros datos.
-function mapClientTypeToKey(label){
-  if(label==='Médico') return 'medico';
-  if(label==='Clínica') return 'clinica';
-  if(label==='Farmacia') return 'farmacia';
-  return 'publico';
-}
-function genOrderClientId(){
-  return 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
-}
-async function registerNewClientInSheet(name, phone, typeLabel){
-  if(!fullSheetState) return; // sin conexión a la hoja, no hay dónde escribir
-  if(!Array.isArray(fullSheetState.clients)) fullSheetState.clients = [];
-  const alreadyExists = fullSheetState.clients.some(c=>c.phone===phone);
-  if(alreadyExists) return;
-
-  const typeKey = mapClientTypeToKey(typeLabel);
-  const newClient = {
-    id: genOrderClientId(),
-    name, phone, type: typeKey,
-    visits:0, visitCycle:0, purchaseTotal:0, purchaseAccum:0,
-    coupons:[],
-    history:[{type:'register', date:Date.now(), description:'Cliente registrado desde la página de pedidos en línea'}],
-    doctorCode: null,
-    createdAt: Date.now()
-  };
-  fullSheetState.clients.push(newClient);
-
-  try{
-    await fetch(APPS_SCRIPT_URL, {
-      method:'POST',
-      mode:'no-cors',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify(fullSheetState)
-    });
-    console.log("Cliente nuevo registrado en Google Sheets:", name);
-  }catch(e){
-    console.log("No se pudo registrar al cliente nuevo en la hoja (sin conexión).", e);
-  }
-}
+// Esta app es SOLO LECTURA: solo trae inventario y clientes de tu Google Sheets,
+// nunca escribe ni modifica nada ahí. El pedido se completa por WhatsApp y tú
+// registras al cliente y la venta manualmente en tu app de negocio.
 
 let cart = {};
 let activeCat = "Todos";
@@ -796,11 +757,6 @@ function sendOrder(){
   const message = buildOrderWhatsAppMessage();
   const url = `https://wa.me/${MEDSUM_WHATSAPP}?text=${encodeURIComponent(message)}`;
   window.open(url, "_blank");
-
-  // Si es cliente nuevo, lo registramos en tu Google Sheets (sin tocar el resto de tu información)
-  if(!checkoutState.client && checkoutState.newName && checkoutState.phone){
-    registerNewClientInSheet(checkoutState.newName, checkoutState.phone, checkoutState.newType);
-  }
 
   toggleDrawer(false);
   document.getElementById("confirm").classList.add("open");
