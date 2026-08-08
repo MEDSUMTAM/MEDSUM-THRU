@@ -123,6 +123,36 @@
 
   .send-btn.not-ready{ opacity:.55; }
 
+  /* ---- Entrega y nota del cliente ---- */
+  .delivery-block{ margin-top:16px; }
+  .delivery-opts{ display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:12px; }
+  .delivery-opt{
+    border:1.5px solid var(--line); background:#fff; border-radius:12px;
+    padding:11px 12px; text-align:left; cursor:pointer; font-family:'Inter',sans-serif;
+    transition:border-color .15s, background .15s;
+  }
+  .delivery-opt:hover{ border-color:#B9C9D6; }
+  .delivery-opt.selected{ border-color:var(--turquoise); background:var(--turquoise-soft); }
+  .delivery-opt .do-title{
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; color:var(--ink); line-height:1.25;
+  }
+  .delivery-opt .do-sub{ font-size:11px; color:var(--muted); margin-top:3px; line-height:1.3; }
+  .field-area{
+    width:100%; border:1.5px solid var(--line); border-radius:11px;
+    padding:10px 12px; font-family:'Inter',sans-serif; font-size:13.5px; color:var(--ink);
+    resize:vertical; outline:none; background:#fff; line-height:1.45;
+  }
+  .field-area:focus{ border-color:var(--turquoise); }
+  .field-area.ok{ border-color:var(--turquoise); }
+  .opt-tag{
+    font-size:10px; font-weight:500; color:var(--muted);
+    background:#EEF3F7; border-radius:5px; padding:2px 6px; margin-left:6px; letter-spacing:.02em;
+  }
+  .pickup-note{
+    background:var(--turquoise-soft); border-radius:11px; padding:10px 12px;
+    font-size:12px; color:var(--navy); line-height:1.45; margin-bottom:12px;
+  }
+
   .search{
     flex:1; max-width:360px; width:100%;
     display:flex; align-items:center; gap:8px;
@@ -506,6 +536,36 @@
     </div>
     <div class="phone-hint" id="phoneHint">Con tu número reconocemos tu cuenta y aplicamos tus cupones. Solo lo usamos para tu pedido.</div>
     <div id="clientArea"></div>
+
+    <div class="delivery-block" id="deliveryBlock" style="display:none;">
+      <div class="field-label">¿Cómo lo quieres recibir?</div>
+      <div class="delivery-opts">
+        <button type="button" class="delivery-opt" id="optTienda" onclick="setDelivery('tienda')">
+          <div class="do-title">🏪 Recojo en tienda</div>
+          <div class="do-sub">Sin costo de envío</div>
+        </button>
+        <button type="button" class="delivery-opt" id="optEnvio" onclick="setDelivery('envio')">
+          <div class="do-title">🚚 Envío a domicilio</div>
+          <div class="do-sub">$50 · gratis desde $500</div>
+        </button>
+      </div>
+
+      <div id="pickupNote" class="pickup-note" style="display:none;">
+        Te esperamos en <b>Av. Rosalío Bustamante 190, Local 4, Col. Petrolera</b>. Te avisamos por WhatsApp en cuanto tu pedido esté listo.
+      </div>
+
+      <div id="addressWrap" style="display:none; margin-bottom:12px;">
+        <div class="field-label">Dirección de entrega</div>
+        <textarea id="addressInput" class="field-area" rows="2"
+                  placeholder="Calle y número, colonia y una referencia"
+                  oninput="onAddressInput()"></textarea>
+      </div>
+
+      <div class="field-label">Nota para MEDSUM <span class="opt-tag">opcional</span></div>
+      <textarea id="notesInput" class="field-area" rows="2"
+                placeholder="Ej. Necesito factura, entregar por la tarde…"
+                oninput="checkoutState.notes = this.value"></textarea>
+    </div>
     <button class="back-link" onclick="backToCart()">← Volver a mi pedido</button>
   </div>
 
@@ -629,7 +689,7 @@ let activeCat = "Todos";
 const SHIPPING_COST = 50;
 const FREE_SHIPPING_THRESHOLD = 500;
 
-let checkoutState = {phone:"", client:null, found:false, newName:"", newType:"", couponId:null};
+let checkoutState = {phone:"", client:null, found:false, newName:"", newType:"", couponId:null, delivery:"envio", address:"", notes:""};
 
 function stockClass(s){ return s===0 ? "out" : s<=5 ? "low" : ""; }
 function stockLabel(s){ return s===0 ? "Agotado" : s<=5 ? `Últimas ${s}` : `${s} disp.`; }
@@ -767,7 +827,8 @@ function renderCart(){
   const coupon = checkoutState.client?.coupons.find(c=>c.id===checkoutState.couponId);
   const discount = coupon ? subtotal*coupon.pct/100 : 0;
   const freeShipping = subtotal >= FREE_SHIPPING_THRESHOLD;
-  const shipping = entries.length>0 && !freeShipping ? SHIPPING_COST : 0;
+  const isPickup = checkoutState.delivery === "tienda";
+  const shipping = (entries.length>0 && !freeShipping && !isPickup) ? SHIPPING_COST : 0;
   const total = subtotal - discount + shipping;
 
   let breakdownHtml = "";
@@ -776,7 +837,9 @@ function renderCart(){
     if(coupon){
       breakdownHtml += `<div class="total-breakdown"><span>Descuento (${coupon.pct}%)</span><span class="mono">-$${discount.toFixed(2)}</span></div>`;
     }
-    if(freeShipping){
+    if(isPickup){
+      breakdownHtml += `<div class="total-breakdown"><span>Recojo en tienda</span><span class="mono" style="color:var(--turquoise);font-weight:700;">Sin costo</span></div>`;
+    } else if(freeShipping){
       breakdownHtml += `<div class="total-breakdown"><span>Envío</span><span class="mono" style="color:var(--turquoise);font-weight:700;">¡GRATIS! 🎉</span></div>`;
     } else {
       breakdownHtml += `<div class="total-breakdown"><span>Envío estándar</span><span class="mono">$${shipping.toFixed(2)}</span></div>`;
@@ -868,7 +931,7 @@ function onPhoneInput(){
   document.getElementById("lookupBtn").disabled = digits.length !== 10;
 
   if(checkoutState.phone !== digits){
-    checkoutState = {phone:digits, client:null, found:false, newName:"", newType:"", couponId:null};
+    checkoutState = {phone:digits, client:null, found:false, newName:"", newType:"", couponId:null, delivery:checkoutState.delivery||"envio", address:checkoutState.address, notes:checkoutState.notes};
     document.getElementById("clientArea").innerHTML = "";
     setStep(1);
     updateSendState();
@@ -904,6 +967,13 @@ function lookupPhone(){
     }
     document.getElementById("lookupBtn").disabled = false;
     renderClientArea();
+    document.getElementById("deliveryBlock").style.display = "block";
+    // Si ya pidió antes desde este celular, recuperamos su dirección
+    const saved = loadMe();
+    if(saved && saved.phone === phone && saved.address && !checkoutState.address){
+      checkoutState.address = saved.address;
+    }
+    renderDelivery();
     setStep(match ? 3 : 2);
     updateSendState();
     if(match){
@@ -915,6 +985,31 @@ function lookupPhone(){
       if(nameInput && !nameInput.value) setTimeout(()=>nameInput.focus(), 120);
     }
   }, 250);
+}
+
+function setDelivery(tipo){
+  checkoutState.delivery = tipo;
+  renderDelivery();
+  renderCart();
+}
+
+function renderDelivery(){
+  const isPickup = checkoutState.delivery === "tienda";
+  document.getElementById("optTienda").classList.toggle("selected", isPickup);
+  document.getElementById("optEnvio").classList.toggle("selected", !isPickup);
+  document.getElementById("pickupNote").style.display = isPickup ? "block" : "none";
+  document.getElementById("addressWrap").style.display = isPickup ? "none" : "block";
+  const addr = document.getElementById("addressInput");
+  addr.value = checkoutState.address;
+  addr.classList.toggle("ok", checkoutState.address.trim().length > 8);
+  document.getElementById("notesInput").value = checkoutState.notes;
+}
+
+function onAddressInput(){
+  const addr = document.getElementById("addressInput");
+  checkoutState.address = addr.value;
+  addr.classList.toggle("ok", addr.value.trim().length > 8);
+  updateSendState();
 }
 
 function setNewType(t){
@@ -1016,8 +1111,9 @@ function updateSendState(){
   const identityOk = checkoutState.client
     ? true
     : (checkoutState.newName.trim().length>1 && checkoutState.newType!=="");
+  const addressOk = checkoutState.delivery === "tienda" || checkoutState.address.trim().length > 8;
 
-  const ready = hasItems && phoneOk && identityOk;
+  const ready = hasItems && phoneOk && identityOk && addressOk;
   // El botón nunca se bloquea: si falta algo, al tocarlo te lleva al campo pendiente
   sendBtn.disabled = false;
   sendBtn.classList.toggle("not-ready", !ready);
@@ -1027,6 +1123,7 @@ function updateSendState(){
   if(!phoneOk) missing = "Escribe tus 10 dígitos para continuar";
   else if(!checkoutState.client && checkoutState.newName.trim().length<=1) missing = "Falta tu nombre";
   else if(!checkoutState.client && checkoutState.newType==="") missing = "Elige cómo te atendemos";
+  else if(!addressOk) missing = "Falta tu dirección de entrega";
 
   if(missing && document.getElementById("checkoutSection").style.display !== "none"){
     missHint.style.display = "flex";
@@ -1059,7 +1156,8 @@ function buildOrderWhatsAppMessage(){
   const subtotal = entries.reduce((a,e)=>a+e.qty*e.product.price,0);
   const coupon = checkoutState.client?.coupons.find(c=>c.id===checkoutState.couponId);
   const discount = coupon ? subtotal*coupon.pct/100 : 0;
-  const shipping = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
+  const isPickup = checkoutState.delivery === "tienda";
+  const shipping = (subtotal >= FREE_SHIPPING_THRESHOLD || isPickup) ? 0 : SHIPPING_COST;
   const total = subtotal - discount + shipping;
 
   const clientName = checkoutState.client ? checkoutState.client.name : (checkoutState.newName || "Cliente nuevo");
@@ -1076,9 +1174,22 @@ function buildOrderWhatsAppMessage(){
   });
   msg += `\nSubtotal: $${subtotal.toFixed(2)}\n`;
   if(coupon) msg += `Cupón ${coupon.label} (${coupon.pct}%): -$${discount.toFixed(2)}\n`;
-  msg += shipping===0 ? `Envío: ¡GRATIS! 🎉\n` : `Envío estándar: $${shipping.toFixed(2)}\n`;
+  if(isPickup){
+    msg += `Recojo en tienda: sin costo\n`;
+  } else {
+    msg += shipping===0 ? `Envío: ¡GRATIS! 🎉\n` : `Envío estándar: $${shipping.toFixed(2)}\n`;
+  }
   msg += `*Total a pagar: $${total.toFixed(2)}*\n\n`;
-  msg += `Quedo al pendiente de los datos para realizar el pago. ¡Gracias!`;
+
+  if(isPickup){
+    msg += `🏪 *Entrega:* Paso a recoger a la tienda\n`;
+  } else {
+    msg += `🚚 *Entrega a domicilio:*\n${checkoutState.address.trim()}\n`;
+  }
+  if(checkoutState.notes.trim()){
+    msg += `\n📝 *Nota:* ${checkoutState.notes.trim()}\n`;
+  }
+  msg += `\nQuedo al pendiente de los datos para realizar el pago. ¡Gracias!`;
   return msg;
 }
 
@@ -1107,6 +1218,14 @@ function focusMissingField(){
       chips.classList.remove("shake"); void chips.offsetWidth; chips.classList.add("shake");
     }
     showToast("Elige cómo te atendemos");
+    return;
+  }
+  if(checkoutState.delivery !== "tienda" && checkoutState.address.trim().length <= 8){
+    const addr = document.getElementById("addressInput");
+    addr.scrollIntoView({behavior:"smooth", block:"center"});
+    setTimeout(()=>addr.focus(), 250);
+    addr.classList.remove("shake"); void addr.offsetWidth; addr.classList.add("shake");
+    showToast("Falta tu dirección de entrega");
   }
 }
 
@@ -1116,8 +1235,9 @@ function sendOrder(){
   const identityOk = checkoutState.client
     ? true
     : (checkoutState.newName.trim().length>1 && checkoutState.newType!=="");
+  const addressOk = checkoutState.delivery === "tienda" || checkoutState.address.trim().length > 8;
   if(!hasItems){ showToast("Tu pedido está vacío"); return; }
-  if(!phoneOk || !identityOk){ focusMissingField(); return; }
+  if(!phoneOk || !identityOk || !addressOk){ focusMissingField(); return; }
 
   const message = buildOrderWhatsAppMessage();
   const url = `https://wa.me/${MEDSUM_WHATSAPP}?text=${encodeURIComponent(message)}`;
@@ -1126,7 +1246,8 @@ function sendOrder(){
   saveMe({
     phone: checkoutState.phone,
     name: checkoutState.client ? checkoutState.client.name : checkoutState.newName,
-    type: checkoutState.client ? checkoutState.client.type : checkoutState.newType
+    type: checkoutState.client ? checkoutState.client.type : checkoutState.newType,
+    address: checkoutState.delivery === "tienda" ? (loadMe()?.address || "") : checkoutState.address
   });
 
   window.open(url, "_blank");
@@ -1134,13 +1255,16 @@ function sendOrder(){
   toggleDrawer(false);
   document.getElementById("confirm").classList.add("open");
   cart = {};
-  checkoutState = {phone:"", client:null, found:false, newName:"", newType:"", couponId:null};
+  checkoutState = {phone:"", client:null, found:false, newName:"", newType:"", couponId:null, delivery:"envio", address:"", notes:""};
   document.getElementById("checkoutSection").style.display = "none";
   document.getElementById("continueBtn").style.display = "block";
   document.getElementById("sendBtn").style.display = "none";
   document.getElementById("missHint").style.display = "none";
   document.getElementById("phoneInput").value = "";
   document.getElementById("clientArea").innerHTML = "";
+  document.getElementById("deliveryBlock").style.display = "none";
+  document.getElementById("addressInput").value = "";
+  document.getElementById("notesInput").value = "";
   setStep(1);
   renderGrid();
   renderCart();
