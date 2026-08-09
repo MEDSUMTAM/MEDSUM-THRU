@@ -642,6 +642,47 @@ document.getElementById("storeAddressLink").href =
 // IMPORTANTE: debe ser EXACTAMENTE la misma URL que usas en tu app de negocio (APPS_SCRIPT_URL)
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxPc68FOw9PB_nUT5MkmpOIs3uVXyVXgNg2BOHRYoAnPF7pXeXb2qb_QOkwYR4TZMP7/exec';
 
+// Debe ser IDÉNTICO al PEDIDO_TOKEN del Apps Script
+const PEDIDO_TOKEN = 'medsum-thru-2026';
+
+// Folio corto y legible para amarrar el chat de WhatsApp con la cotización
+function nuevoFolio(){
+  return 'WEB-' + Date.now().toString(36).slice(-4).toUpperCase();
+}
+
+/**
+ * Manda el pedido al Apps Script para que se registre como cotización en la
+ * app de negocio. Solo enviamos ids y cantidades: los precios los recalcula
+ * el servidor leyendo la hoja, para que no se puedan alterar desde aquí.
+ */
+function enviarPedidoAlBackend(folio, quoteId){
+  const payload = {
+    id: quoteId,
+    folio: folio,
+    phone: checkoutState.phone,
+    name: checkoutState.client ? checkoutState.client.name : checkoutState.newName.trim(),
+    type: checkoutState.client ? checkoutState.client.type : checkoutState.newType,
+    delivery: checkoutState.delivery,
+    address: checkoutState.delivery === 'tienda' ? '' : checkoutState.address.trim(),
+    notes: checkoutState.notes.trim(),
+    couponId: checkoutState.couponId,
+    items: Object.values(cart).map(e=>({id: e.product.id, qty: e.qty}))
+  };
+  try{
+    return fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'action=pedido&token=' + encodeURIComponent(PEDIDO_TOKEN)
+          + '&data=' + encodeURIComponent(JSON.stringify(payload))
+    });
+  }catch(err){
+    // Si falla, el pedido igual sale por WhatsApp con todo el detalle
+    console.log('No se pudo registrar el pedido como cotización', err);
+    return Promise.resolve();
+  }
+}
+
 let PRODUCTS = FALLBACK_PRODUCTS;
 let CLIENTS = FALLBACK_CLIENTS;
 let dataSource = "ejemplo";
@@ -1161,7 +1202,7 @@ document.addEventListener("keydown", (e)=>{
 
 const MEDSUM_WHATSAPP = "528332515105"; // 52 (México) + 8332515105
 
-function buildOrderWhatsAppMessage(){
+function buildOrderWhatsAppMessage(folio){
   const entries = Object.values(cart);
   const subtotal = entries.reduce((a,e)=>a+e.qty*e.product.price,0);
   const coupon = checkoutState.client?.coupons.find(c=>c.id===checkoutState.couponId);
@@ -1174,7 +1215,9 @@ function buildOrderWhatsAppMessage(){
   const clientType = checkoutState.client ? checkoutState.client.type : (checkoutState.newType || "");
   const phone = checkoutState.phone;
 
-  let msg = `🛍️ *Nuevo pedido MEDSUM*\n\n`;
+  let msg = `🛍️ *Nuevo pedido MEDSUM*\n`;
+  if(folio) msg += `Folio: *${folio}*\n`;
+  msg += `\n`;
   msg += `👤 Cliente: ${clientName}\n`;
   msg += `📞 Teléfono: ${phone}\n`;
   if(clientType) msg += `🏷️ Tipo: ${clientType}\n`;
@@ -1249,7 +1292,11 @@ function sendOrder(){
   if(!hasItems){ showToast("Tu pedido está vacío"); return; }
   if(!phoneOk || !identityOk || !addressOk){ focusMissingField(); return; }
 
-  const message = buildOrderWhatsAppMessage();
+  const folio = nuevoFolio();
+  const quoteId = 'quote_web_' + Date.now().toString(36);
+  enviarPedidoAlBackend(folio, quoteId);
+
+  const message = buildOrderWhatsAppMessage(folio);
   const url = `https://wa.me/${MEDSUM_WHATSAPP}?text=${encodeURIComponent(message)}`;
 
   // Recordamos al cliente en su propio celular para su siguiente pedido
