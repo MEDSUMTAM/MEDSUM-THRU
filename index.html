@@ -668,18 +668,27 @@ function enviarPedidoAlBackend(folio, quoteId){
     couponId: checkoutState.couponId,
     items: Object.values(cart).map(e=>({id: e.product.id, qty: e.qty}))
   };
+  const body = 'action=pedido&token=' + encodeURIComponent(PEDIDO_TOKEN)
+             + '&data=' + encodeURIComponent(JSON.stringify(payload));
   try{
-    return fetch(APPS_SCRIPT_URL, {
+    // sendBeacon está diseñado para sobrevivir cuando la página se va al fondo
+    // (que es justo lo que pasa al abrir WhatsApp). Es el envío más confiable.
+    if(navigator.sendBeacon){
+      const blob = new Blob([body], {type:'application/x-www-form-urlencoded'});
+      const ok = navigator.sendBeacon(APPS_SCRIPT_URL, blob);
+      if(ok){ console.log('Pedido enviado como cotización (beacon)'); return; }
+    }
+    // Respaldo: keepalive le pide al navegador que no cancele la petición
+    fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       mode: 'no-cors',
+      keepalive: true,
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: 'action=pedido&token=' + encodeURIComponent(PEDIDO_TOKEN)
-          + '&data=' + encodeURIComponent(JSON.stringify(payload))
-    });
+      body: body
+    }).catch(err=>console.log('Falló el respaldo', err));
   }catch(err){
     // Si falla, el pedido igual sale por WhatsApp con todo el detalle
     console.log('No se pudo registrar el pedido como cotización', err);
-    return Promise.resolve();
   }
 }
 
@@ -1307,7 +1316,7 @@ function sendOrder(){
     address: checkoutState.delivery === "tienda" ? (loadMe()?.address || "") : checkoutState.address
   });
 
-  window.open(url, "_blank");
+  setTimeout(()=>window.open(url, "_blank"), 350);
 
   toggleDrawer(false);
   document.getElementById("confirm").classList.add("open");
