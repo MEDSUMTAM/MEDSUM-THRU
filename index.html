@@ -126,6 +126,8 @@
 
   /* ---- Entrega y nota del cliente ---- */
   .delivery-block{ margin-top:16px; }
+  .addr-grid{ display:grid; grid-template-columns:1fr; gap:9px; margin-bottom:9px; }
+  .addr-grid input.ok, textarea.field-area.ok{ border-color:var(--turquoise); }
   .delivery-opts{ display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:12px; }
   .delivery-opt{
     border:1.5px solid var(--line); background:var(--card); border-radius:12px;
@@ -582,9 +584,29 @@
 
       <div id="addressWrap" style="display:none; margin-bottom:12px;">
         <div class="field-label">Dirección de entrega</div>
-        <textarea id="addressInput" class="field-area" rows="2"
-                  placeholder="Calle y número, colonia y una referencia"
-                  oninput="onAddressInput()"></textarea>
+        <div class="addr-grid">
+          <input id="streetInput" class="field-input" placeholder="Calle y número"
+                 oninput="onAddressPartInput()">
+          <input id="coloniaInput" class="field-input" placeholder="Colonia"
+                 oninput="onAddressPartInput()">
+          <input id="postalInput" class="field-input" placeholder="Código postal" maxlength="5" inputmode="numeric"
+                 oninput="onPostalInput()">
+        </div>
+        <textarea id="referencesInput" class="field-area" rows="2"
+                  placeholder="Referencias (color de casa, entre calles, punto conocido…)"
+                  oninput="onAddressPartInput()"></textarea>
+      </div>
+
+      <div class="field-label">¿Cómo prefieres pagar?</div>
+      <div class="delivery-opts" id="paymentOpts">
+        <button type="button" class="delivery-opt" id="optTransferencia" onclick="setPayment('transferencia')">
+          <div class="do-title">💳 Transferencia</div>
+          <div class="do-sub">Te mandamos los datos por WhatsApp</div>
+        </button>
+        <button type="button" class="delivery-opt" id="optEfectivo" onclick="setPayment('efectivo')">
+          <div class="do-title">💵 Efectivo / Tarjeta</div>
+          <div class="do-sub">Pagas al recibir tu pedido</div>
+        </button>
       </div>
 
       <div class="field-label">Nota para MEDSUM <span class="opt-tag">opcional</span></div>
@@ -681,7 +703,8 @@ function enviarPedidoAlBackend(folio, quoteId){
     name: checkoutState.client ? checkoutState.client.name : checkoutState.newName.trim(),
     type: checkoutState.client ? checkoutState.client.type : checkoutState.newType,
     delivery: checkoutState.delivery,
-    address: checkoutState.delivery === 'tienda' ? '' : checkoutState.address.trim(),
+    address: checkoutState.delivery === 'tienda' ? '' : getFullAddress(),
+    paymentMethod: checkoutState.paymentMethod,
     notes: checkoutState.notes.trim(),
     couponId: checkoutState.couponId,
     items: Object.values(cart).map(e=>({id: e.product.id, qty: e.qty}))
@@ -795,7 +818,7 @@ let activeCat = "Todos";
 const SHIPPING_COST = 50;
 const FREE_SHIPPING_THRESHOLD = 500;
 
-let checkoutState = {phone:"", client:null, found:false, newName:"", newType:"", couponId:null, delivery:"envio", address:"", notes:""};
+let checkoutState = {phone:"", client:null, found:false, newName:"", newType:"", couponId:null, delivery:"envio", street:"", colonia:"", postalCode:"", references:"", paymentMethod:"", notes:""};
 
 function stockClass(s){ return s===0 ? "out" : s<=5 ? "low" : ""; }
 function stockLabel(s){ return s===0 ? "Agotado" : s<=5 ? `Últimas ${s}` : `${s} disp.`; }
@@ -1046,7 +1069,7 @@ function onPhoneInput(){
   document.getElementById("lookupBtn").disabled = digits.length !== 10;
 
   if(checkoutState.phone !== digits){
-    checkoutState = {phone:digits, client:null, found:false, newName:"", newType:"", couponId:null, delivery:checkoutState.delivery||"envio", address:checkoutState.address, notes:checkoutState.notes};
+    checkoutState = {phone:digits, client:null, found:false, newName:"", newType:"", couponId:null, delivery:checkoutState.delivery||"envio", street:checkoutState.street, colonia:checkoutState.colonia, postalCode:checkoutState.postalCode, references:checkoutState.references, paymentMethod:checkoutState.paymentMethod, notes:checkoutState.notes};
     document.getElementById("clientArea").innerHTML = "";
     setStep(1);
     updateSendState();
@@ -1083,10 +1106,14 @@ function lookupPhone(){
     document.getElementById("lookupBtn").disabled = false;
     renderClientArea();
     document.getElementById("deliveryBlock").style.display = "block";
-    // Si ya pidió antes desde este celular, recuperamos su dirección
+    // Si ya pidió antes desde este celular, recuperamos su dirección y forma de pago
     const saved = loadMe();
-    if(saved && saved.phone === phone && saved.address && !checkoutState.address){
-      checkoutState.address = saved.address;
+    if(saved && saved.phone === phone){
+      if(saved.street && !checkoutState.street) checkoutState.street = saved.street;
+      if(saved.colonia && !checkoutState.colonia) checkoutState.colonia = saved.colonia;
+      if(saved.postalCode && !checkoutState.postalCode) checkoutState.postalCode = saved.postalCode;
+      if(saved.references && !checkoutState.references) checkoutState.references = saved.references;
+      if(saved.paymentMethod && !checkoutState.paymentMethod) checkoutState.paymentMethod = saved.paymentMethod;
     }
     renderDelivery();
     setStep(match ? 3 : 2);
@@ -1108,22 +1135,59 @@ function setDelivery(tipo){
   renderCart();
 }
 
+function getFullAddress(){
+  const parts = [];
+  if(checkoutState.street.trim()) parts.push(checkoutState.street.trim());
+  if(checkoutState.colonia.trim()) parts.push('Col. ' + checkoutState.colonia.trim());
+  if(checkoutState.postalCode.trim()) parts.push('C.P. ' + checkoutState.postalCode.trim());
+  let text = parts.join(', ');
+  if(checkoutState.references.trim()){
+    text += (text ? '\n' : '') + 'Referencias: ' + checkoutState.references.trim();
+  }
+  return text;
+}
+function isAddressComplete(){
+  return checkoutState.street.trim().length > 3
+      && checkoutState.colonia.trim().length > 1
+      && checkoutState.postalCode.trim().length === 5;
+}
+
 function renderDelivery(){
   const isPickup = checkoutState.delivery === "tienda";
   document.getElementById("optTienda").classList.toggle("selected", isPickup);
   document.getElementById("optEnvio").classList.toggle("selected", !isPickup);
   document.getElementById("pickupNote").style.display = isPickup ? "block" : "none";
   document.getElementById("addressWrap").style.display = isPickup ? "none" : "block";
-  const addr = document.getElementById("addressInput");
-  addr.value = checkoutState.address;
-  addr.classList.toggle("ok", checkoutState.address.trim().length > 8);
+  document.getElementById("streetInput").value = checkoutState.street;
+  document.getElementById("coloniaInput").value = checkoutState.colonia;
+  document.getElementById("postalInput").value = checkoutState.postalCode;
+  document.getElementById("referencesInput").value = checkoutState.references;
+  document.getElementById("streetInput").classList.toggle("ok", checkoutState.street.trim().length > 3);
+  document.getElementById("coloniaInput").classList.toggle("ok", checkoutState.colonia.trim().length > 1);
+  document.getElementById("postalInput").classList.toggle("ok", checkoutState.postalCode.trim().length === 5);
   document.getElementById("notesInput").value = checkoutState.notes;
+  document.getElementById("optTransferencia").classList.toggle("selected", checkoutState.paymentMethod==="transferencia");
+  document.getElementById("optEfectivo").classList.toggle("selected", checkoutState.paymentMethod==="efectivo");
 }
 
-function onAddressInput(){
-  const addr = document.getElementById("addressInput");
-  checkoutState.address = addr.value;
-  addr.classList.toggle("ok", addr.value.trim().length > 8);
+function onAddressPartInput(){
+  checkoutState.street = document.getElementById("streetInput").value;
+  checkoutState.colonia = document.getElementById("coloniaInput").value;
+  checkoutState.references = document.getElementById("referencesInput").value;
+  document.getElementById("streetInput").classList.toggle("ok", checkoutState.street.trim().length > 3);
+  document.getElementById("coloniaInput").classList.toggle("ok", checkoutState.colonia.trim().length > 1);
+  updateSendState();
+}
+function onPostalInput(){
+  const el = document.getElementById("postalInput");
+  el.value = el.value.replace(/\D/g,"").slice(0,5);
+  checkoutState.postalCode = el.value;
+  el.classList.toggle("ok", el.value.length === 5);
+  updateSendState();
+}
+function setPayment(method){
+  checkoutState.paymentMethod = method;
+  renderDelivery();
   updateSendState();
 }
 
@@ -1226,9 +1290,10 @@ function updateSendState(){
   const identityOk = checkoutState.client
     ? true
     : (checkoutState.newName.trim().length>1 && checkoutState.newType!=="");
-  const addressOk = checkoutState.delivery === "tienda" || checkoutState.address.trim().length > 8;
+  const addressOk = checkoutState.delivery === "tienda" || isAddressComplete();
+  const paymentOk = checkoutState.paymentMethod !== "";
 
-  const ready = hasItems && phoneOk && identityOk && addressOk;
+  const ready = hasItems && phoneOk && identityOk && addressOk && paymentOk;
   // El botón nunca se bloquea: si falta algo, al tocarlo te lleva al campo pendiente
   sendBtn.disabled = false;
   sendBtn.classList.toggle("not-ready", !ready);
@@ -1238,7 +1303,8 @@ function updateSendState(){
   if(!phoneOk) missing = "Escribe tus 10 dígitos para continuar";
   else if(!checkoutState.client && checkoutState.newName.trim().length<=1) missing = "Falta tu nombre";
   else if(!checkoutState.client && checkoutState.newType==="") missing = "Elige cómo te atendemos";
-  else if(!addressOk) missing = "Falta tu dirección de entrega";
+  else if(!addressOk) missing = "Falta calle, colonia y código postal";
+  else if(!paymentOk) missing = "Elige cómo prefieres pagar";
 
   if(missing && document.getElementById("checkoutSection").style.display !== "none"){
     missHint.style.display = "flex";
@@ -1301,12 +1367,16 @@ function buildOrderWhatsAppMessage(folio){
   if(isPickup){
     msg += `🏪 *Entrega:* Paso a recoger a la tienda\n`;
   } else {
-    msg += `🚚 *Entrega a domicilio:*\n${checkoutState.address.trim()}\n`;
+    msg += `🚚 *Entrega a domicilio:*\n${getFullAddress()}\n`;
   }
+  const paymentLabel = checkoutState.paymentMethod === "transferencia" ? "Transferencia / Depósito" : "Efectivo / Tarjeta al recibir";
+  msg += `💳 *Forma de pago:* ${paymentLabel}\n`;
   if(checkoutState.notes.trim()){
     msg += `\n📝 *Nota:* ${checkoutState.notes.trim()}\n`;
   }
-  msg += `\nQuedo al pendiente de los datos para realizar el pago. ¡Gracias!`;
+  msg += checkoutState.paymentMethod === "transferencia"
+    ? `\nQuedo al pendiente de los datos para realizar la transferencia. ¡Gracias!`
+    : `\n¡Gracias! Tengo listo el pago para cuando llegue mi pedido.`;
   return msg;
 }
 
@@ -1337,12 +1407,21 @@ function focusMissingField(){
     showToast("Elige cómo te atendemos");
     return;
   }
-  if(checkoutState.delivery !== "tienda" && checkoutState.address.trim().length <= 8){
-    const addr = document.getElementById("addressInput");
-    addr.scrollIntoView({behavior:"smooth", block:"center"});
-    setTimeout(()=>addr.focus(), 250);
-    addr.classList.remove("shake"); void addr.offsetWidth; addr.classList.add("shake");
-    showToast("Falta tu dirección de entrega");
+  if(checkoutState.delivery !== "tienda" && !isAddressComplete()){
+    const el = !checkoutState.street.trim() ? document.getElementById("streetInput")
+             : !checkoutState.colonia.trim() ? document.getElementById("coloniaInput")
+             : document.getElementById("postalInput");
+    el.scrollIntoView({behavior:"smooth", block:"center"});
+    setTimeout(()=>el.focus(), 250);
+    el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake");
+    showToast("Falta calle, colonia y código postal");
+    return;
+  }
+  if(checkoutState.paymentMethod === ""){
+    const opts = document.getElementById("paymentOpts");
+    opts.scrollIntoView({behavior:"smooth", block:"center"});
+    opts.classList.remove("shake"); void opts.offsetWidth; opts.classList.add("shake");
+    showToast("Elige cómo prefieres pagar");
   }
 }
 
@@ -1352,9 +1431,10 @@ function sendOrder(){
   const identityOk = checkoutState.client
     ? true
     : (checkoutState.newName.trim().length>1 && checkoutState.newType!=="");
-  const addressOk = checkoutState.delivery === "tienda" || checkoutState.address.trim().length > 8;
+  const addressOk = checkoutState.delivery === "tienda" || isAddressComplete();
+  const paymentOk = checkoutState.paymentMethod !== "";
   if(!hasItems){ showToast("Tu pedido está vacío"); return; }
-  if(!phoneOk || !identityOk || !addressOk){ focusMissingField(); return; }
+  if(!phoneOk || !identityOk || !addressOk || !paymentOk){ focusMissingField(); return; }
 
   const folio = nuevoFolio();
   const quoteId = 'quote_web_' + Date.now().toString(36);
@@ -1368,7 +1448,11 @@ function sendOrder(){
     phone: checkoutState.phone,
     name: checkoutState.client ? checkoutState.client.name : checkoutState.newName,
     type: checkoutState.client ? checkoutState.client.type : checkoutState.newType,
-    address: checkoutState.delivery === "tienda" ? (loadMe()?.address || "") : checkoutState.address
+    street: checkoutState.delivery === "tienda" ? (loadMe()?.street || "") : checkoutState.street,
+    colonia: checkoutState.delivery === "tienda" ? (loadMe()?.colonia || "") : checkoutState.colonia,
+    postalCode: checkoutState.delivery === "tienda" ? (loadMe()?.postalCode || "") : checkoutState.postalCode,
+    references: checkoutState.delivery === "tienda" ? (loadMe()?.references || "") : checkoutState.references,
+    paymentMethod: checkoutState.paymentMethod
   });
 
   setTimeout(()=>window.open(url, "_blank"), 350);
@@ -1376,7 +1460,7 @@ function sendOrder(){
   toggleDrawer(false);
   document.getElementById("confirm").classList.add("open");
   cart = {};
-  checkoutState = {phone:"", client:null, found:false, newName:"", newType:"", couponId:null, delivery:"envio", address:"", notes:""};
+  checkoutState = {phone:"", client:null, found:false, newName:"", newType:"", couponId:null, delivery:"envio", street:"", colonia:"", postalCode:"", references:"", paymentMethod:"", notes:""};
   document.getElementById("checkoutSection").style.display = "none";
   document.getElementById("drawer").classList.remove("checkout-open");
   document.getElementById("continueBtn").style.display = "block";
@@ -1385,7 +1469,12 @@ function sendOrder(){
   document.getElementById("phoneInput").value = "";
   document.getElementById("clientArea").innerHTML = "";
   document.getElementById("deliveryBlock").style.display = "none";
-  document.getElementById("addressInput").value = "";
+  document.getElementById("streetInput").value = "";
+  document.getElementById("coloniaInput").value = "";
+  document.getElementById("postalInput").value = "";
+  document.getElementById("referencesInput").value = "";
+  document.getElementById("optTransferencia").classList.remove("selected");
+  document.getElementById("optEfectivo").classList.remove("selected");
   document.getElementById("notesInput").value = "";
   setStep(1);
   renderGrid();
