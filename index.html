@@ -331,6 +331,10 @@
   }
   .di-remove:hover{opacity:1;}
   .drawer-empty{color:var(--muted); font-size:13.5px; text-align:center; margin-top:40px;}
+  .loading-state{
+    grid-column:1/-1; text-align:center; color:var(--muted); font-size:14px;
+    padding:60px 20px; line-height:1.6;
+  }
   .drawer-foot{padding:16px 20px; border-top:1px solid var(--line);}
   .total-row{display:flex; justify-content:space-between; font-family:'Space Grotesk'; font-weight:600; font-size:16px; margin-bottom:12px;}
   .send-btn{
@@ -706,18 +710,31 @@ function enviarPedidoAlBackend(folio, quoteId){
   }
 }
 
-let PRODUCTS = FALLBACK_PRODUCTS;
-let CLIENTS = FALLBACK_CLIENTS;
-let dataSource = "ejemplo";
+let PRODUCTS = [];
+let CLIENTS = {};
+let dataSource = "cargando";
 let fullSheetState = null; // estado completo de tu hoja (productos, clientes, ventas, etc.) tal como lo leímos
 
-async function loadBackupData(){
+function renderLoadingGrid(msg){
+  const grid = document.getElementById("grid");
+  if(grid) grid.innerHTML = `<div class="loading-state">🔄 ${msg}</div>`;
+  const chips = document.getElementById("chips");
+  if(chips) chips.innerHTML = "";
+}
+
+async function fetchSheetOnce(){
+  const res = await fetch(APPS_SCRIPT_URL, {cache:"no-store"});
+  if(!res.ok) throw new Error("sin respuesta");
+  const text = await res.text();
+  if(!text || text === "{}") throw new Error("hoja vacía");
+  return JSON.parse(text);
+}
+
+async function loadBackupData(attempt){
+  attempt = attempt || 1;
+  if(attempt === 1) renderLoadingGrid("Cargando catálogo…");
   try{
-    const res = await fetch(APPS_SCRIPT_URL, {cache:"no-store"});
-    if(!res.ok) throw new Error("sin respuesta");
-    const text = await res.text();
-    if(!text || text === "{}") throw new Error("hoja vacía");
-    const data = JSON.parse(text);
+    const data = await fetchSheetOnce();
     fullSheetState = data;
 
     if(data.products && data.products.length){
@@ -746,8 +763,25 @@ async function loadBackupData(){
     dataSource = "en vivo (Google Sheets)";
     console.log("Inventario y clientes cargados en tiempo real desde Google Sheets.");
   }catch(e){
-    dataSource = "ejemplo (sin conexión con Google Sheets)";
-    console.log("No se pudo conectar con Google Sheets, usando datos de ejemplo.", e);
+    console.log(`Intento ${attempt} de conexión con Google Sheets falló.`, e);
+    if(attempt < 3){
+      // Reintenta un par de veces antes de rendirse; en móviles con
+      // señal débil, el primer intento suele fallar por timeout.
+      renderLoadingGrid("Cargando catálogo… (reintentando conexión)");
+      await new Promise(r=>setTimeout(r, 1200));
+      return loadBackupData(attempt+1);
+    }
+    // Después de varios intentos seguimos sin conexión real: NUNCA mostramos
+    // productos de ejemplo/prueba a un cliente real, solo un aviso claro.
+    dataSource = "sin conexión";
+    const grid = document.getElementById("grid");
+    if(grid){
+      grid.innerHTML = `<div class="loading-state">
+        ⚠️ No pudimos cargar el catálogo en este momento.<br>
+        Verifica tu conexión y desliza hacia abajo para reintentar, o vuelve a intentarlo en unos segundos.
+      </div>`;
+    }
+    return;
   }
   renderChips();
   renderGrid();
